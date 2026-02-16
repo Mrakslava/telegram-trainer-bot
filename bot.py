@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 
 from telegram import Update, ReplyKeyboardMarkup
@@ -13,7 +13,7 @@ from telegram.ext import (
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# ====== DATA STORAGE (просте, в памʼяті) ======
+# ===== DATA =====
 user_data = defaultdict(lambda: {
     "streak": 0,
     "last_training": None,
@@ -21,153 +21,177 @@ user_data = defaultdict(lambda: {
     "total_rounds": 0,
 })
 
-# ====== PLANS ======
-PLANS = {
-    0: ["Присідання x20", "Планка 1 хв", "Віджимання x15"],
-    1: ["Біг на місці 5 хв", "Прес x25"],
-    2: ["Присідання x30", "Планка 2 хв"],
-    3: ["Легкий день 🧘"],
-    4: ["Віджимання x20", "Прес x30"],
-    5: ["Кардіо 10 хв"],
-    6: ["Відновлення 💤"],
-}
+# ===== DAYS =====
+LIGHT_DAYS = [0, 3]  # Monday, Thursday
 
-# ====== KEYBOARD ======
+# ===== PLANS =====
+POWER_PLAN = (
+    "🔥 СИЛОВИЙ ДЕНЬ (5 кіл):\n"
+    "• Присідання — 20 × 5\n"
+    "• Віджимання — 15 × 5\n"
+    "• Випади — 20 (10+10) × 5\n"
+    "• Альпініст — 30 сек × 5\n"
+    "• Планка — 40 сек × 5"
+)
+
+LIGHT_PLAN = (
+    "🧘 ЛЕГКИЙ ДЕНЬ:\n"
+    "• Присідання — 3 × 20\n"
+    "• Віджимання — 3 × 12\n"
+    "• Прес — 3 × 25\n"
+    "• Планка — 3 × 1 хв"
+)
+
+# ===== KEYBOARD =====
 KEYBOARD = ReplyKeyboardMarkup(
     [
         ["▶️ Почати тренування"],
+        ["📅 План на сьогодні", "🗓 Календар тижня"],
+        ["📋 Перелік вправ"],
         ["⏰ Нагадати через 10 хв", "⏱ Почати раніше"],
-        ["📅 План на сьогодні", "📋 Перелік вправ"],
         ["🔥 Streak", "📊 Статистика"],
         ["🥇 Досягнення"],
     ],
     resize_keyboard=True
 )
 
-# ====== START ======
+# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🏋️‍♂️ Я твій тренер!\n\n"
-        "⏰ Нагадую щодня о 21:30\n"
-        "💪 Відмічай тренування і збирай streak\n\n"
-        "👇 Обери дію кнопками",
+        "🏋️‍♂️ Я твій тренер.\n\n"
+        "📅 План фіксований\n"
+        "🔥 5 силових / 🧘 ПН + ЧТ легкі\n\n"
+        "👇 Обирай дію кнопками",
         reply_markup=KEYBOARD
     )
 
-# ====== TRAINING ======
+# ===== TRAINING =====
 async def start_training(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🔥 Тренування почалось!\n"
-        "Після завершення напиши, скільки кіл зробив (число)."
+        "▶️ Тренування почалось!\n"
+        "Після завершення напиши, скільки **кіл** зробив (число)."
     )
 
-# ====== REMIND 10 MIN ======
-async def remind_10(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⏰ Добре, нагадаю через 10 хв!")
-    context.job_queue.run_once(
-        reminder_job,
-        when=600,
-        chat_id=update.effective_chat.id,
-    )
-
-async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(
-        chat_id=context.job.chat_id,
-        text="⏰ Нагадую! Час тренуватись 💪",
-        reply_markup=KEYBOARD
-    )
-
-# ====== EARLY START ======
-async def early_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⏱ Починаємо раніше — вперед 💪")
-    await start_training(update, context)
-
-# ====== PLAN ======
+# ===== PLAN TODAY =====
 async def today_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     day = datetime.now().weekday()
-    plan = "\n".join(PLANS.get(day, []))
-    await update.message.reply_text(f"📅 План на сьогодні:\n{plan}")
+    if day in LIGHT_DAYS:
+        await update.message.reply_text(LIGHT_PLAN)
+    else:
+        await update.message.reply_text(POWER_PLAN)
 
-# ====== EXERCISES ======
+# ===== WEEK CALENDAR =====
+async def week_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🗓 КАЛЕНДАР ТИЖНЯ:\n\n"
+        "Понеділок — 🧘 легкий\n"
+        "Вівторок — 🔥 силовий\n"
+        "Середа — 🔥 силовий\n"
+        "Четвер — 🧘 легкий\n"
+        "Пʼятниця — 🔥 силовий\n"
+        "Субота — 🔥 силовий\n"
+        "Неділя — 🔥 силовий"
+    )
+
+# ===== EXERCISES =====
 async def exercises(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "📋 Перелік вправ:\n"
+    await update.message.reply_text(
+        "📋 ВПРАВИ:\n"
         "• Присідання\n"
         "• Віджимання\n"
+        "• Випади\n"
+        "• Альпініст\n"
         "• Планка\n"
-        "• Прес\n"
-        "• Кардіо\n"
+        "• Прес"
     )
-    await update.message.reply_text(text)
 
-# ====== STREAK ======
+# ===== STREAK =====
 async def streak(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = user_data[update.effective_user.id]
-    await update.message.reply_text(f"🔥 Твій streak: {data['streak']} днів")
+    d = user_data[update.effective_user.id]
+    await update.message.reply_text(f"🔥 Streak: {d['streak']} днів")
 
-# ====== STATS ======
+# ===== STATS =====
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = user_data[update.effective_user.id]
+    d = user_data[update.effective_user.id]
     await update.message.reply_text(
         f"📊 Статистика:\n"
-        f"🏋️ Тренувань: {data['total_trainings']}\n"
-        f"🔄 Кіл: {data['total_rounds']}"
+        f"🏋️ Тренувань: {d['total_trainings']}\n"
+        f"🔄 Кіл: {d['total_rounds']}"
     )
 
-# ====== ACHIEVEMENTS ======
+# ===== ACHIEVEMENTS =====
 async def achievements(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = user_data[update.effective_user.id]
+    d = user_data[update.effective_user.id]
     ach = []
-    if data["total_trainings"] >= 1:
+    if d["total_trainings"] >= 1:
         ach.append("🥉 Перше тренування")
-    if data["streak"] >= 5:
-        ach.append("🥈 5 днів без пропусків")
-    if data["total_rounds"] >= 50:
+    if d["streak"] >= 5:
+        ach.append("🥈 5 днів підряд")
+    if d["total_rounds"] >= 50:
         ach.append("🥇 50 кіл")
 
     await update.message.reply_text(
-        "🥇 Досягнення:\n" + ("\n".join(ach) if ach else "Поки немає 😌")
+        "🥇 Досягнення:\n" + ("\n".join(ach) if ach else "Поки порожньо")
     )
 
-# ====== HANDLE NUMBERS ======
+# ===== REMIND 10 =====
+async def remind_10(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⏰ Добре, нагадаю через 10 хв")
+
+    context.job_queue.run_once(
+        lambda ctx: ctx.bot.send_message(
+            update.effective_chat.id,
+            "⏰ Нагадування! Час тренування 💪",
+            reply_markup=KEYBOARD
+        ),
+        600
+    )
+
+# ===== EARLY =====
+async def early(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⏱ Починаємо раніше 💪")
+    await start_training(update, context)
+
+# ===== NUMBERS =====
 async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.text.isdigit():
         return
 
     rounds = int(update.message.text)
     uid = update.effective_user.id
-    data = user_data[uid]
-
+    d = user_data[uid]
     today = datetime.now().date()
-    if data["last_training"] != today:
-        data["streak"] += 1
-        data["total_trainings"] += 1
-        data["last_training"] = today
 
-    data["total_rounds"] += rounds
+    if d["last_training"] != today:
+        d["streak"] += 1
+        d["total_trainings"] += 1
+        d["last_training"] = today
+
+    d["total_rounds"] += rounds
 
     await update.message.reply_text(
-        f"✅ Записав {rounds} кіл!\n🔥 Streak: {data['streak']}",
+        f"✅ Записав {rounds} кіл\n🔥 Streak: {d['streak']}",
         reply_markup=KEYBOARD
     )
 
-# ====== MAIN ======
+# ===== MAIN =====
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Regex("^▶️"), start_training))
-    app.add_handler(MessageHandler(filters.Regex("^⏰"), remind_10))
-    app.add_handler(MessageHandler(filters.Regex("^⏱"), early_start))
     app.add_handler(MessageHandler(filters.Regex("^📅"), today_plan))
+    app.add_handler(MessageHandler(filters.Regex("^🗓"), week_calendar))
     app.add_handler(MessageHandler(filters.Regex("^📋"), exercises))
+    app.add_handler(MessageHandler(filters.Regex("^⏰"), remind_10))
+    app.add_handler(MessageHandler(filters.Regex("^⏱"), early))
     app.add_handler(MessageHandler(filters.Regex("^🔥"), streak))
     app.add_handler(MessageHandler(filters.Regex("^📊"), stats))
     app.add_handler(MessageHandler(filters.Regex("^🥇"), achievements))
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_number))
 
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-
