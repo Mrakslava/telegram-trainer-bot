@@ -4,7 +4,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 from apscheduler.schedulers.background import BackgroundScheduler
 
 import os
-BOT_TOKEN = os.environ.get("8254891256:AAHb5oka112LbU9axVv_R8gBRs1d2VSGMq0")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 
 CHAT_ID = None
