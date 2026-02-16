@@ -1,181 +1,173 @@
 import os
-import json
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
+from collections import defaultdict
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    CallbackQueryHandler,
+    MessageHandler,
     ContextTypes,
+    filters,
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-DATA_FILE = "data.json"
 
-# ------------------ Дані ------------------
+# ====== DATA STORAGE (просте, в памʼяті) ======
+user_data = defaultdict(lambda: {
+    "streak": 0,
+    "last_training": None,
+    "total_trainings": 0,
+    "total_rounds": 0,
+})
 
+# ====== PLANS ======
 PLANS = {
-    0: ["Віджимання – 20", "Присідання – 30", "Планка – 30 сек"],      # Пн
-    1: ["Прес – 25", "Випади – 20", "Планка – 40 сек"],              # Вт
-    2: ["Віджимання – 25", "Присідання – 40"],                       # Ср
-    3: ["Прес – 30", "Планка – 45 сек"],                             # Чт
-    4: ["Берпі – 15", "Присідання – 30"],                            # Пт
-    5: ["Легке кардіо – 10 хв"],                                     # Сб
-    6: ["Розтяжка 🧘‍♂️"],                                           # Нд
+    0: ["Присідання x20", "Планка 1 хв", "Віджимання x15"],
+    1: ["Біг на місці 5 хв", "Прес x25"],
+    2: ["Присідання x30", "Планка 2 хв"],
+    3: ["Легкий день 🧘"],
+    4: ["Віджимання x20", "Прес x30"],
+    5: ["Кардіо 10 хв"],
+    6: ["Відновлення 💤"],
 }
 
-# ------------------ Утиліти ------------------
+# ====== KEYBOARD ======
+KEYBOARD = ReplyKeyboardMarkup(
+    [
+        ["▶️ Почати тренування"],
+        ["⏰ Нагадати через 10 хв", "⏱ Почати раніше"],
+        ["📅 План на сьогодні", "📋 Перелік вправ"],
+        ["🔥 Streak", "📊 Статистика"],
+        ["🥇 Досягнення"],
+    ],
+    resize_keyboard=True
+)
 
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {}
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-def get_user(data, user_id):
-    uid = str(user_id)
-    if uid not in data:
-        data[uid] = {
-            "streak": 0,
-            "last_day": None,
-            "done": 0,
-            "achievements": []
-        }
-    return data[uid]
-
-# ------------------ Меню ------------------
-
-def main_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ Почати тренування", callback_data="start_now")],
-        [InlineKeyboardButton("⏰ Нагадати через 10 хв", callback_data="remind_10")],
-        [InlineKeyboardButton("📅 План на сьогодні", callback_data="today_plan")],
-        [InlineKeyboardButton("🔥 Streak", callback_data="streak")],
-        [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
-        [InlineKeyboardButton("🥇 Досягнення", callback_data="achievements")],
-    ])
-
-# ------------------ Команди ------------------
-
+# ====== START ======
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "💪 Бот працює і готовий до тренувань!\n\nОбери команду 👇",
-        reply_markup=main_menu()
+        "🏋️‍♂️ Я твій тренер!\n\n"
+        "⏰ Нагадую щодня о 21:30\n"
+        "💪 Відмічай тренування і збирай streak\n\n"
+        "👇 Обери дію кнопками",
+        reply_markup=KEYBOARD
     )
 
-# ------------------ Callback ------------------
+# ====== TRAINING ======
+async def start_training(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🔥 Тренування почалось!\n"
+        "Після завершення напиши, скільки кіл зробив (число)."
+    )
 
-async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+# ====== REMIND 10 MIN ======
+async def remind_10(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⏰ Добре, нагадаю через 10 хв!")
+    context.job_queue.run_once(
+        reminder_job,
+        when=600,
+        chat_id=update.effective_chat.id,
+    )
 
-    data = load_data()
-    user = get_user(data, query.from_user.id)
+async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(
+        chat_id=context.job.chat_id,
+        text="⏰ Нагадую! Час тренуватись 💪",
+        reply_markup=KEYBOARD
+    )
 
-    if query.data == "start_now":
-        await send_training(query, data, user)
+# ====== EARLY START ======
+async def early_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⏱ Починаємо раніше — вперед 💪")
+    await start_training(update, context)
 
-    elif query.data == "remind_10":
-        context.job_queue.run_once(
-            reminder,
-            when=10 * 60,
-            chat_id=query.message.chat_id
-        )
-        await query.edit_message_text("⏰ Нагадаю через 10 хв!")
+# ====== PLAN ======
+async def today_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    day = datetime.now().weekday()
+    plan = "\n".join(PLANS.get(day, []))
+    await update.message.reply_text(f"📅 План на сьогодні:\n{plan}")
 
-    elif query.data == "today_plan":
-        await query.edit_message_text(get_today_plan())
+# ====== EXERCISES ======
+async def exercises(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "📋 Перелік вправ:\n"
+        "• Присідання\n"
+        "• Віджимання\n"
+        "• Планка\n"
+        "• Прес\n"
+        "• Кардіо\n"
+    )
+    await update.message.reply_text(text)
 
-    elif query.data == "streak":
-        await query.edit_message_text(f"🔥 Твій streak: {user['streak']} днів")
+# ====== STREAK ======
+async def streak(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = user_data[update.effective_user.id]
+    await update.message.reply_text(f"🔥 Твій streak: {data['streak']} днів")
 
-    elif query.data == "stats":
-        await query.edit_message_text(
-            f"📊 Статистика:\n"
-            f"✅ Виконано тренувань: {user['done']}\n"
-            f"🔥 Streak: {user['streak']}"
-        )
+# ====== STATS ======
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = user_data[update.effective_user.id]
+    await update.message.reply_text(
+        f"📊 Статистика:\n"
+        f"🏋️ Тренувань: {data['total_trainings']}\n"
+        f"🔄 Кіл: {data['total_rounds']}"
+    )
 
-    elif query.data == "achievements":
-        ach = user["achievements"] or ["Поки що немає 😅"]
-        await query.edit_message_text("🥇 Досягнення:\n" + "\n".join(ach))
+# ====== ACHIEVEMENTS ======
+async def achievements(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = user_data[update.effective_user.id]
+    ach = []
+    if data["total_trainings"] >= 1:
+        ach.append("🥉 Перше тренування")
+    if data["streak"] >= 5:
+        ach.append("🥈 5 днів без пропусків")
+    if data["total_rounds"] >= 50:
+        ach.append("🥇 50 кіл")
 
-    save_data(data)
+    await update.message.reply_text(
+        "🥇 Досягнення:\n" + ("\n".join(ach) if ach else "Поки немає 😌")
+    )
 
-# ------------------ Тренування ------------------
-
-def get_today_plan():
-    weekday = datetime.now().weekday()
-    exercises = PLANS.get(weekday, [])
-    text = "📅 План на сьогодні:\n"
-    for e in exercises:
-        text += f"• {e}\n"
-    return text
-
-async def send_training(query, data, user):
-    today = datetime.now().date().isoformat()
-
-    if user["last_day"] == today:
-        await query.edit_message_text("✅ Ти вже сьогодні тренувався!")
+# ====== HANDLE NUMBERS ======
+async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.text.isdigit():
         return
 
-    # streak
-    if user["last_day"] == (datetime.now().date() - timedelta(days=1)).isoformat():
-        user["streak"] += 1
-    else:
-        user["streak"] = 1
+    rounds = int(update.message.text)
+    uid = update.effective_user.id
+    data = user_data[uid]
 
-    user["last_day"] = today
-    user["done"] += 1
+    today = datetime.now().date()
+    if data["last_training"] != today:
+        data["streak"] += 1
+        data["total_trainings"] += 1
+        data["last_training"] = today
 
-    if user["streak"] == 7 and "7 днів 🔥" not in user["achievements"]:
-        user["achievements"].append("7 днів 🔥")
+    data["total_rounds"] += rounds
 
-    await query.edit_message_text(
-        "🏋️ Тренування почалось!\n\n" + get_today_plan()
+    await update.message.reply_text(
+        f"✅ Записав {rounds} кіл!\n🔥 Streak: {data['streak']}",
+        reply_markup=KEYBOARD
     )
 
-# ------------------ Нагадування ------------------
-
-async def reminder(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(
-        chat_id=context.job.chat_id,
-        text="⏰ Час тренуватись! Натисни /start 💪"
-    )
-
-# ------------------ Авто 21:30 ------------------
-
-async def auto_training(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(
-        chat_id=context.job.chat_id,
-        text="🕘 21:30! Час тренування 💪\nНатисни /start"
-    )
-
-# ------------------ Запуск ------------------
-
+# ====== MAIN ======
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(buttons))
+    app.add_handler(MessageHandler(filters.Regex("^▶️"), start_training))
+    app.add_handler(MessageHandler(filters.Regex("^⏰"), remind_10))
+    app.add_handler(MessageHandler(filters.Regex("^⏱"), early_start))
+    app.add_handler(MessageHandler(filters.Regex("^📅"), today_plan))
+    app.add_handler(MessageHandler(filters.Regex("^📋"), exercises))
+    app.add_handler(MessageHandler(filters.Regex("^🔥"), streak))
+    app.add_handler(MessageHandler(filters.Regex("^📊"), stats))
+    app.add_handler(MessageHandler(filters.Regex("^🥇"), achievements))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_number))
 
-    # щодня о 21:30
-    app.job_queue.run_daily(
-        auto_training,
-        time=time(21, 30)
-    )
-
-    print("🤖 Бот запущений")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+
