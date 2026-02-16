@@ -10,7 +10,7 @@ from telegram.ext import (
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # 🔴 ВСТАВ СВІЙ ТОКЕН В ЛАПКАХ
-BOT_TOKEN = "8254891256:AAHb5oka112LbU9axVv_R8gBRs1d2VSGMq0"
+BOT_TOKEN = "8445714241:AAGt7i05Yrd6Yp7JKPEh7mp_FUhzhUHrWrM"
 
 CHAT_ID = None
 results = []
