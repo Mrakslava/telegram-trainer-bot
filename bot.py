@@ -3,7 +3,9 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from apscheduler.schedulers.background import BackgroundScheduler
 
-BOT_TOKEN = "8254891256:AAHb5oka112LbU9axVv_R8gBRs1d2VSGMq0"
+import os
+BOT_TOKEN = os.environ.get("8254891256:AAHb5oka112LbU9axVv_R8gBRs1d2VSGMq0")
+
 
 CHAT_ID = None
 results = []  # тут зберігаються всі відповіді
